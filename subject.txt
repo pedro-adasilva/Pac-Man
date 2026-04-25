@@ -1,0 +1,110 @@
+Chapter III
+Common Instructions
+III.1 General Rules
+• Your project must be written in Python 3.10 or later.
+• Your project must adhere to the flake8 coding standard.
+• Your functions should handle exceptions gracefully to avoid crashes. Use try-except
+blocks to manage potential errors. Prefer context managers for resources like files or
+connections to ensure automatic cleanup. If your program crashes due to unhandled
+exceptions during the review, it will be considered non-functional.
+• All resources (e.g., file handles, network connections) must be properly managed to
+prevent leaks. Use context managers where possible for automatic handling.
+• Your code must include type hints for function parameters, return types, and vari-
+ables where applicable (using the typing module). Use mypy for static type check-
+ing. All functions must pass mypy without errors.
+• Include docstrings in functions and classes following PEP 257 (e.g., Google or
+NumPy style) to document purpose, parameters, and returns.
+III.2 Makefile
+Include a Makefile in your project to automate common tasks. It must contain the
+following rules (mandatory lint implies the specified flags; it is strongly recommended to
+try –strict for enhanced checking):
+• install: Install project dependencies using pip, uv, pipx, or any other package
+manager of your choice.
+• run: Execute the main script of your project (e.g., via Python interpreter).
+• debug: Run the main script in debug mode using Python’s built-in debugger (e.g.,
+pdb).
+• clean: Remove temporary files or caches (e.g., __pycache__, .mypy_cache) to
+keep the project environment clean.
+• lint: Execute the commands flake8 . and mypy . --warn-return-any
+--warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs
+--check-untyped-defs
+• lint-strict (optional): Execute the commands flake8 . and mypy . --strict
+III.3 Additional Guidelines
+• Create test programs to verify project functionality (not submitted or graded). Use
+frameworks like pytest or unittest for unit tests, covering edge cases.
+• Include a .gitignore file to exclude Python artifacts.
+• It is recommended to use virtual environments (e.g., venv or conda) for dependency
+isolation during development.
+
+Chapter IV
+Mandatory part
+In this project, you will create a complete and playable Pac-Man game like in Python,
+using object-oriented programming, a simple graphical library (MLX or similar), and a
+modular, reusable architecture.
+The game must support:
+• A custom configuration via a file (JSON with comments) to set game parameters.
+• Robust error handling, no crash!
+• Level generation based on an external ‘A-Maze-ing‘ package (not yours!).
+• A persistent highscore system of your choice (stored in a json file on project, saved
+to disk, etc.).
+• A polished graphical UI with main menu, game view, and game-over handling.
+• A cheat mode for evaluation purposes.
+• Deployment to a public gaming platform (Steam/Itch.io or similar) for demonstra-
+tion.
+Special care will be given to project management, and multiple documents will be re-
+quested.
+Game Loop
+• Main Menu > start game > Win or Lose > Enter name for highscore > Back to
+Main Menu
+
+Chapter V
+Detailed specifications
+V.1 Usage
+Your program must be launched from the command line as follows:
+$> python3 pac-man.py config.json
+• It must take exactly one argument: a configuration file. The filename file does
+not matter, but the file must be a json file.
+• Any error (missing file, invalid value, missing key) must be handled cleanly with
+clear messages, never with a Python traceback.
+V.2 Configuration file
+The config file uses JSON. In addition to the standard JSON format, you must handle
+comments. Lines starting with # are comments and must be ignored. You may also
+support additional comment styles (e.g., C or C++).
+The exact structure is up to you, but document your keys in the README and provide
+robust defaults.
+Suggested keys (names are indicative):
+• highscore_filename
+• level array of multiple levels
+• width , height for each level
+• lives : 3
+• pacgum : 42
+• points_per_pacgum : 10
+• points_per_super_pacgum : 50
+• points_per_ghost : 200
+• seed : 42
+• level_max_time : 90
+V.3 Faulty config handling
+On missing or invalid values, clamp to safe defaults, log a clear message, and continue.
+Unknown keys must be ignored. No traceback.
+The game configuration will be updated during the defense.
+V.4 Maze generator integration
+You must not write your own generator.
+At project start, you are assigned an A-Maze-ing package from another group:
+• You must use their package as-is, without modifying it. The assigned package will
+be re-installed during your peer review.
+• Your loader must adapt to their interface, not the opposite.
+• The parameter PERFECT will be set to False produce Pac-Man-compatible corridors
+(see A-Maze-ing subject).
+• If the generator fails, you must handle the error cleanly.
+V.5 Highscore system
+You must implement a persistent highscore system.
+The exact implementation is up to you, but document it in the README.
+It must:
+• Be stored as you choose (e.g., json file on project, on disk, etc.).
+• Be robust to file errors (missing file, invalid format, etc.).
+• Handle player names (max 10 characters, alphanumeric and spaces only).
+• Handle scores (non-negative integers).
+• Keep the top 10 highscores, with player names and scores.
+• Load highscores at game start and save them at game end.
+• Allow players to enter their name when they end the game (win or lose).
+• Display highscores in the main menu.
