@@ -15,10 +15,10 @@ install: $(VENV_DIR)/bin/python
 	$(VENV_PIP) install $(WHEEL)
 
 run: install
-	PYTHONPATH=src $(VENV_PYTHON) -m pacman.main
+	$(VENV_PYTHON) pac-man.py config.json
 
 debug: install
-	PYTHONPATH=src $(VENV_PYTHON) -m pdb -m pacman.main
+	$(VENV_PYTHON) -m pdb pac-man.py config.json
 
 clean:
 	find . -type d -name "__pycache__" -prune -exec rm -rf {} +

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import multiprocessing as mp
+from dataclasses import dataclass
 from queue import Empty
 
 from mazegenerator.mazegenerator import MazeGenerator
@@ -41,14 +41,13 @@ def can_move(cell_code: int, dx: int, dy: int) -> bool:
 class MazeProvider:
     """Create game levels through the external wheel package."""
 
-    def __init__(self, timeout_seconds: float = 2.5) -> None:
+    def __init__(self, timeout_seconds: float = 5.0) -> None:
         self.timeout_seconds = timeout_seconds
 
     @staticmethod
     def _worker(
         width: int,
         height: int,
-        perfect: bool,
         seed: int,
         output_queue: mp.Queue[tuple[str, MazeLevel | str]],
     ) -> None:
@@ -56,7 +55,7 @@ class MazeProvider:
         try:
             generator = MazeGenerator(
                 size=(width, height),
-                perfect=perfect,
+                perfect=False,
                 seed=seed,
             )
             output_queue.put(
@@ -70,31 +69,15 @@ class MazeProvider:
                     ),
                 )
             )
+        except KeyboardInterrupt:
+            return
         except Exception as exc:  # noqa: BLE001
             output_queue.put(("error", str(exc)))
-
-    def _fallback_level(self, width: int, height: int, seed: int) -> MazeLevel:
-        """Generate a constrained fallback maze if normal generation stalls."""
-        safe_width = min(max(5, width), 15)
-        safe_height = min(max(5, height), 15)
-        safe_seed = seed if seed > 0 else 42
-        generator = MazeGenerator(
-            size=(safe_width, safe_height),
-            perfect=True,
-            seed=safe_seed,
-        )
-        return MazeLevel(
-            grid=generator.maze,
-            entry=generator.maze_entry,
-            exit=generator.maze_exit,
-            shortest_path=generator.shortest_path,
-        )
 
     def generate(
         self,
         width: int,
         height: int,
-        perfect: bool,
         seed: int,
     ) -> MazeLevel:
         """Generate a new level and return normalized data."""
@@ -104,22 +87,32 @@ class MazeProvider:
         output_queue: mp.Queue[tuple[str, MazeLevel | str]] = mp.Queue()
         process = mp.Process(
             target=self._worker,
-            args=(width, height, perfect, seed, output_queue),
+            args=(width, height, seed, output_queue),
             daemon=True,
         )
         process.start()
-        process.join(self.timeout_seconds)
+
+        try:
+            process.join(self.timeout_seconds)
+        except KeyboardInterrupt:
+            if process.is_alive():
+                process.terminate()
+                process.join()
+            raise
 
         if process.is_alive():
             process.terminate()
             process.join()
-            return self._fallback_level(width, height, seed)
+            raise TimeoutError(
+                "Maze generation timed out after "
+                f"{self.timeout_seconds:.1f} seconds"
+            )
 
         try:
             status, payload = output_queue.get_nowait()
         except Empty:
-            return self._fallback_level(width, height, seed)
+            raise RuntimeError("Maze generator did not return a result")
 
         if status == "ok" and isinstance(payload, MazeLevel):
             return payload
-        return self._fallback_level(width, height, seed)
+        raise RuntimeError(f"Maze generator failed: {payload}")

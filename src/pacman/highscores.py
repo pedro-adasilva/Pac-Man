@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import json
+import re
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,17 @@ class HighscoreEntry:
 
     name: str
     score: int
+
+
+def validate_player_name(name: str) -> str:
+    """Validate and normalize a player name.
+
+    Max 10 chars, alphanumeric and spaces only.
+    """
+    name = str(name).strip()[:10]
+    if not re.match(r"^[a-zA-Z0-9 ]*$", name):
+        name = re.sub(r"[^a-zA-Z0-9 ]", "", name)[:10]
+    return name or "PLAYER"
 
 
 def load_highscores(file_path: Path) -> list[HighscoreEntry]:
@@ -62,7 +74,10 @@ def register_score(
     limit: int = 10,
 ) -> list[HighscoreEntry]:
     """Add a score and save the updated highscore table."""
+    player_name = validate_player_name(player_name)
     entries = load_highscores(file_path)
-    entries.append(HighscoreEntry(name=player_name[:16], score=max(score, 0)))
+    entries.append(
+        HighscoreEntry(name=player_name, score=max(score, 0))
+    )
     save_highscores(file_path, entries, limit=limit)
     return load_highscores(file_path)

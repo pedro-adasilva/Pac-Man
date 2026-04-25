@@ -1,0 +1,28 @@
+{
+  "# Window settings": "",
+  "window_width": 960,
+  "window_height": 720,
+  "fps": 60,
+
+  "# Game mechanics": "",
+  "lives": 3,
+  "pacgum": 42,
+  "points_per_pacgum": 10,
+  "points_per_super_pacgum": 50,
+  "points_per_ghost": 200,
+  "level_max_time": 90,
+
+  "# Level generation": "",
+  "levels": [
+    {
+      "width": 21,
+      "height": 21,
+      "seed": 0,
+      "num_ghosts": 1
+    }
+  ],
+
+  "# Persistent data": "",
+  "highscores_file": "data/highscores.json",
+  "cheat_mode": true
+}

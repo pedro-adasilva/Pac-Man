@@ -7,9 +7,11 @@ from pathlib import Path
 from pacman.settings import GameSettings, load_settings
 
 
-def test_load_settings_from_default_config() -> None:
-    """Default config should be parseable into GameSettings."""
-    settings = load_settings(Path("config/game_config.jsonc"))
+def test_load_settings_from_config() -> None:
+    """Config should be parseable into GameSettings."""
+    settings = load_settings(Path("config.json"))
     assert isinstance(settings, GameSettings)
-    assert settings.maze_width > 0
-    assert settings.maze_height > 0
+    assert len(settings.levels) > 0
+    assert settings.levels[0].width > 0
+    assert settings.levels[0].height > 0
+    assert settings.lives > 0
