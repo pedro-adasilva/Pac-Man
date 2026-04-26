@@ -41,7 +41,7 @@ def can_move(cell_code: int, dx: int, dy: int) -> bool:
 class MazeProvider:
     """Create game levels through the external wheel package."""
 
-    def __init__(self, timeout_seconds: float = 5.0) -> None:
+    def __init__(self, timeout_seconds: float = 7.0) -> None:
         self.timeout_seconds = timeout_seconds
 
     @staticmethod
