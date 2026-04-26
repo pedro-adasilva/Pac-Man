@@ -11,11 +11,6 @@ from pathlib import Path
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
-
-from pacman.game import Game
-from pacman.settings import load_settings
-
 
 def main() -> int:
     """Run game startup and handle fatal errors gracefully."""
@@ -25,6 +20,13 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    # Add src directory to sys.path for imports
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+
+    from pacman.game import Game
+    from pacman.settings import load_settings
 
     config_path = Path(sys.argv[1])
 
