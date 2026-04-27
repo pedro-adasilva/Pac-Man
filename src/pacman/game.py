@@ -55,6 +55,11 @@ class Game:
     """Main game object handling UI states and play loop."""
 
     def __init__(self, settings: GameSettings) -> None:
+        """Initialize a new game with provided settings.
+
+        Args:
+            settings: GameSettings object with game configuration.
+        """
         self.settings = settings
         self.window_width = settings.window_width
         self.window_height = settings.window_height
@@ -315,7 +320,11 @@ class Game:
             self.runtime.state = "error"
 
     def _process_events(self) -> bool:
-        """Process user input based on current state."""
+        """Process user input and handle state transitions.
+
+        Returns:
+            bool: False if game should quit, True otherwise.
+        """
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
@@ -362,7 +371,11 @@ class Game:
         self._check_ghost_collision(now_ms)
 
     def _handle_playing_key(self, key: int) -> None:
-        """Handle in-game controls and update player position."""
+        """Handle in-game controls and update player position.
+
+        Args:
+            key: Pygame key code from event.
+        """
         if not self.level:
             return
         if self.settings.cheat_mode and key == pygame.K_n:
@@ -381,7 +394,15 @@ class Game:
         self.desired_dy = dy
 
     def _can_move(self, dx: int, dy: int) -> bool:
-        """Return True when current direction can move one cell."""
+        """Check if player can move in the given direction.
+
+        Args:
+            dx: Change in x direction (-1, 0, or 1).
+            dy: Change in y direction (-1, 0, or 1).
+
+        Returns:
+            bool: True if movement is allowed, False otherwise.
+        """
         if not self.level:
             return False
         if dx == 0 and dy == 0:
@@ -393,7 +414,16 @@ class Game:
         return can_move(cell_code, dx, dy)
 
     def _try_move(self, dx: int, dy: int, now_ms: int) -> bool:
-        """Try to move player by one cell and update score/state."""
+        """Attempt player movement and check level completion.
+
+        Collects items under the player and updates game state.
+            dx: Change in x direction.
+            dy: Change in y direction.
+            now_ms: Current time in milliseconds.
+
+        Returns:
+            bool: True if move succeeded, False otherwise.
+        """
         if not self.level:
             return False
 
@@ -428,19 +458,41 @@ class Game:
         self.score = 0
 
     def _draw(self, screen: pygame.Surface) -> None:
-        """Draw current UI state."""
+        """Render current game state to screen.
+
+        Args:
+            screen: Pygame surface to draw to.
+        """
         draw_game(self, screen)
 
     def _check_ghost_collision(self, now_ms: int) -> bool:
-        """Return True if a ghost visually overlaps the player."""
+        """Check for collisions between player and ghosts.
+
+        Args:
+            now_ms: Current time in milliseconds.
+
+        Returns:
+            bool: True if collision detected, False otherwise.
+        """
         return check_ghost_collision(self, now_ms)
 
     def _move_ghosts(self, now_ms: int) -> None:
-        """Move ghosts with a simple chase behavior."""
+        """Update ghost positions with AI chase logic.
+
+        Args:
+            now_ms: Current time in milliseconds.
+        """
         move_ghosts(self, now_ms)
 
     def _get_player_render_position(self, now_ms: int) -> tuple[float, float]:
-        """Return interpolated player position in tile coordinates."""
+        """Get smoothly interpolated player position for rendering.
+
+        Args:
+            now_ms: Current time in milliseconds.
+
+        Returns:
+            tuple[float, float]: (x, y) position in tile coordinates.
+        """
         return self._interpolate_cell_position(
             from_x=self.player_render_from_x,
             from_y=self.player_render_from_y,

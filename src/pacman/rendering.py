@@ -29,7 +29,12 @@ def draw_game(game: "Game", screen: pygame.Surface) -> None:
 
 
 def _draw_menu(game: "Game", screen: pygame.Surface) -> None:
-    """Draw menu view."""
+    """Render the main menu screen with title and controls.
+
+    Args:
+        game: Game instance for accessing UI scale and settings.
+        screen: Pygame surface to draw to.
+    """
     scale = game._ui_scale()
     x = max(24, int(40 * scale))
     y_title = max(40, int(60 * scale))
@@ -54,7 +59,12 @@ def _draw_menu(game: "Game", screen: pygame.Surface) -> None:
 
 
 def _draw_loading(game: "Game", screen: pygame.Surface) -> None:
-    """Draw loading view while a maze is being generated."""
+    """Render the loading screen while maze is being generated.
+
+    Args:
+        game: Game instance for accessing UI scale.
+        screen: Pygame surface to draw to.
+    """
     scale = game._ui_scale()
     x = max(24, int(40 * scale))
     y_title = max(40, int(60 * scale))
@@ -76,7 +86,12 @@ def _draw_loading(game: "Game", screen: pygame.Surface) -> None:
 
 
 def _draw_game_over(game: "Game", screen: pygame.Surface) -> None:
-    """Draw game-over view."""
+    """Render the game over screen with score and outcome.
+
+    Args:
+        game: Game instance with final score and outcome (win/lose).
+        screen: Pygame surface to draw to.
+    """
     scale = game._ui_scale()
     x = max(24, int(40 * scale))
     y_title = max(40, int(60 * scale))
@@ -108,7 +123,12 @@ def _draw_game_over(game: "Game", screen: pygame.Surface) -> None:
 
 
 def _draw_error(game: "Game", screen: pygame.Surface) -> None:
-    """Draw maze generation error view."""
+    """Render the error screen when maze generation fails.
+
+    Args:
+        game: Game instance with error message.
+        screen: Pygame surface to draw to.
+    """
     scale = game._ui_scale()
     x = max(24, int(40 * scale))
     y_title = max(40, int(60 * scale))
@@ -136,7 +156,19 @@ def _draw_error(game: "Game", screen: pygame.Surface) -> None:
 
 
 def _draw_playing(game: "Game", screen: pygame.Surface) -> None:
-    """Draw maze, player and HUD."""
+    """Render the main game view with maze, collectibles, player and HUD.
+
+    Draws the complete game state including:
+    - Maze walls and corridors
+    - Pacgums and super-pacgums
+    - Player position
+    - Ghost positions
+    - HUD with score, lives, level, and collectibles remaining
+
+    Args:
+        game: Game instance with current state.
+        screen: Pygame surface to draw to.
+    """
     if not game.level:
         return
     scale = game._ui_scale()
