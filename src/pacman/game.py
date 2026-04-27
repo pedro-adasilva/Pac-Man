@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 from collections import deque
-import math
 import random
 from threading import Thread
 
 import pygame
 
+from pacman.ghost_logic import (
+    check_ghost_collision,
+    initialize_ghosts,
+    move_ghosts,
+)
+from pacman.level_flow import (
+    check_level_completion,
+    find_spawn_position,
+    initialize_collectibles,
+    start_new_game,
+)
 from pacman.maze_provider import MazeLevel, MazeProvider, can_move
 from pacman.models import GameRuntime, GhostRuntime
 from pacman.rendering import draw_game
@@ -231,163 +241,17 @@ class Game:
         finally:
             self.generation_thread = None
 
-    def _walkable_cells(self, level: MazeLevel) -> set[tuple[int, int]]:
-        """Return all non-blocked cells of the maze."""
-        return {
-            (x, y)
-            for y, row in enumerate(level.grid)
-            for x, code in enumerate(row)
-            if code != BLOCKED_CELL_CODE
-        }
-
-    def _nearest_walkable(
-        self,
-        candidates: set[tuple[int, int]],
-        target_x: int,
-        target_y: int,
-    ) -> tuple[int, int] | None:
-        """Find the walkable cell nearest to a target position."""
-        if not candidates:
-            return None
-        return min(
-            candidates,
-            key=lambda pos: (
-                abs(pos[0] - target_x) + abs(pos[1] - target_y),
-                pos[1],
-                pos[0],
-            ),
-        )
-
     def _initialize_ghosts(self, level: MazeLevel) -> None:
         """Spawn four ghosts near maze corners."""
-        width = len(level.grid[0])
-        height = len(level.grid)
-        corners = [
-            (0, 0),
-            (width - 1, 0),
-            (0, height - 1),
-            (width - 1, height - 1),
-        ]
-        colors = [
-            (255, 90, 90),
-            (90, 220, 255),
-            (255, 164, 94),
-            (255, 118, 235),
-        ]
-        available = self._walkable_cells(level)
-        available.discard((self.spawn_x, self.spawn_y))
-        ghosts: list[GhostRuntime] = []
-
-        for idx, (cx, cy) in enumerate(corners):
-            chosen = self._nearest_walkable(available, cx, cy)
-            if chosen is None:
-                continue
-            available.discard(chosen)
-            ghosts.append(
-                GhostRuntime(
-                    x=chosen[0],
-                    y=chosen[1],
-                    spawn_x=chosen[0],
-                    spawn_y=chosen[1],
-                    dir_x=0,
-                    dir_y=0,
-                    color=colors[idx],
-                    recent_cells=deque([chosen], maxlen=6),
-                    render_from_x=chosen[0],
-                    render_from_y=chosen[1],
-                    render_started_ms=0,
-                )
-            )
-
-        self.ghosts = ghosts
-        self.last_ghost_move_ms = 0
+        initialize_ghosts(self, level)
 
     def _initialize_collectibles(self, level: MazeLevel) -> None:
         """Create pacgums and super-pacgums for the current level."""
-        width = len(level.grid[0])
-        height = len(level.grid)
-        all_cells = {(x, y) for y in range(height) for x in range(width)}
-        blocked = {
-            (x, y)
-            for y, row in enumerate(level.grid)
-            for x, code in enumerate(row)
-            if code == BLOCKED_CELL_CODE
-        }
-        blocked.add((self.spawn_x, self.spawn_y))
-
-        self.super_pacgums = self._compute_super_pacgum_positions(
-            width=width,
-            height=height,
-            available=all_cells - blocked,
-        )
-
-        regular_candidates = list(
-            all_cells - blocked - self.super_pacgums
-        )
-        random.shuffle(regular_candidates)
-        target = min(self.settings.pacgum, len(regular_candidates))
-        self.pacgums = set(regular_candidates[:target])
+        initialize_collectibles(self, level)
 
     def _find_spawn_position(self, level: MazeLevel) -> tuple[int, int]:
         """Find the walkable cell closest to the maze center."""
-        width = len(level.grid[0])
-        height = len(level.grid)
-        center_x = width // 2
-        center_y = height // 2
-        candidates: list[tuple[int, int]] = []
-
-        for y, row in enumerate(level.grid):
-            for x, code in enumerate(row):
-                if code == BLOCKED_CELL_CODE:
-                    continue
-                candidates.append((x, y))
-
-        if not candidates:
-            return level.entry
-
-        return min(
-            candidates,
-            key=lambda pos: (
-                abs(pos[0] - center_x) + abs(pos[1] - center_y),
-                pos[1],
-                pos[0],
-            ),
-        )
-
-    def _compute_super_pacgum_positions(
-        self,
-        width: int,
-        height: int,
-        available: set[tuple[int, int]],
-    ) -> set[tuple[int, int]]:
-        """Place up to 4 super-pacgums near maze corners."""
-        if not available:
-            return set()
-
-        corners = [
-            (0, 0),
-            (width - 1, 0),
-            (0, height - 1),
-            (width - 1, height - 1),
-        ]
-        placed: set[tuple[int, int]] = set()
-        remaining = set(available)
-
-        for cx, cy in corners:
-            if not remaining:
-                break
-            chosen = min(
-                remaining,
-                key=lambda pos: (
-                    abs(pos[0] - cx) + abs(pos[1] - cy),
-                    pos[1],
-                    pos[0],
-                ),
-            )
-            placed.add(chosen)
-            remaining.remove(chosen)
-
-        return placed
+        return find_spawn_position(level)
 
     def _consume_collectibles_at_player(self) -> None:
         """Consume collectible under player and update score."""
@@ -401,24 +265,11 @@ class Game:
 
     def _check_level_completion(self) -> None:
         """Advance to the next level or end the game when cleared."""
-        if not self.pacgums and not self.super_pacgums:
-            if self.current_level_idx + 1 < len(self.settings.levels):
-                self.current_level_idx += 1
-                self._start_level_generation()
-                return
-            self.game_over_reason = "win"
-            self.runtime.state = "game_over"
+        check_level_completion(self)
 
     def _start_new_game(self) -> None:
         """Reset progression data and start from the first level."""
-        self.current_level_idx = 0
-        self.lives = self.settings.lives
-        self.runtime.score = 0
-        self.move_dx = 0
-        self.move_dy = 0
-        self.desired_dx = 0
-        self.desired_dy = 0
-        self.game_over_reason = "win"
+        start_new_game(self)
 
     def _on_player_caught(self) -> None:
         """Handle player collision with a ghost."""
@@ -452,163 +303,6 @@ class Game:
             ghost.render_from_x = ghost.spawn_x
             ghost.render_from_y = ghost.spawn_y
             ghost.render_started_ms = pygame.time.get_ticks()
-
-    def _get_player_render_position(self, now_ms: int) -> tuple[float, float]:
-        """Return interpolated player position in tile coordinates."""
-        return self._interpolate_cell_position(
-            from_x=self.player_render_from_x,
-            from_y=self.player_render_from_y,
-            to_x=self.runtime.player_x,
-            to_y=self.runtime.player_y,
-            started_ms=self.player_render_started_ms,
-            cooldown_ms=self.move_cooldown_ms,
-            now_ms=now_ms,
-        )
-
-    def _get_ghost_render_position(
-        self,
-        ghost: GhostRuntime,
-        now_ms: int,
-    ) -> tuple[float, float]:
-        """Return interpolated ghost position in tile coordinates."""
-        return self._interpolate_cell_position(
-            from_x=ghost.render_from_x,
-            from_y=ghost.render_from_y,
-            to_x=ghost.x,
-            to_y=ghost.y,
-            started_ms=ghost.render_started_ms,
-            cooldown_ms=self.ghost_move_cooldown_ms,
-            now_ms=now_ms,
-        )
-
-    def _check_ghost_collision(self, now_ms: int) -> bool:
-        """Return True if a ghost visually overlaps the player."""
-        player_x, player_y = self._get_player_render_position(now_ms)
-        for ghost in self.ghosts:
-            ghost_x, ghost_y = self._get_ghost_render_position(ghost, now_ms)
-            distance = math.hypot(ghost_x - player_x, ghost_y - player_y)
-            if distance <= COLLISION_DISTANCE_TILES:
-                self._on_player_caught()
-                return True
-        return False
-
-    def _ghost_available_moves(
-        self,
-        ghost: GhostRuntime,
-    ) -> list[tuple[int, int]]:
-        """Collect legal one-cell moves for a ghost."""
-        if not self.level:
-            return []
-
-        moves: list[tuple[int, int]] = []
-        cell_code = self.level.grid[ghost.y][ghost.x]
-        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
-            if not can_move(cell_code, dx, dy):
-                continue
-            nx = ghost.x + dx
-            ny = ghost.y + dy
-            if (
-                0 <= nx < len(self.level.grid[0])
-                and 0 <= ny < len(self.level.grid)
-                and self.level.grid[ny][nx] != BLOCKED_CELL_CODE
-            ):
-                moves.append((dx, dy))
-        return moves
-
-    def _move_ghosts(self, now_ms: int) -> None:
-        """Move ghosts with a simple chase behavior."""
-        if not self.level or not self.ghosts:
-            return
-
-        update_order = list(range(len(self.ghosts)))
-        if update_order:
-            shift = self.ghost_update_index % len(update_order)
-            update_order = update_order[shift:] + update_order[:shift]
-            self.ghost_update_index += 1
-
-        occupied_now = {(ghost.x, ghost.y) for ghost in self.ghosts}
-        reserved_next: set[tuple[int, int]] = set()
-        for ghost_idx in update_order:
-            ghost = self.ghosts[ghost_idx]
-            ghost_prev = (ghost.x, ghost.y)
-            occupied_now.discard(ghost_prev)
-            moves = self._ghost_available_moves(ghost)
-            if not moves:
-                ghost.stuck_ticks += 1
-                reserved_next.add(ghost_prev)
-                occupied_now.add(ghost_prev)
-                continue
-
-            reverse = (-ghost.dir_x, -ghost.dir_y)
-            non_reverse = [move for move in moves if move != reverse]
-            candidates = non_reverse if non_reverse else moves
-
-            available = [
-                move
-                for move in candidates
-                if (
-                    (ghost.x + move[0], ghost.y + move[1])
-                    not in occupied_now
-                    and (ghost.x + move[0], ghost.y + move[1])
-                    not in reserved_next
-                )
-            ]
-            if available:
-                candidates = available
-            else:
-                # If preferred direction is blocked, allow reverse moves
-                # before declaring the ghost stuck.
-                fallback = [
-                    move
-                    for move in moves
-                    if (
-                        (ghost.x + move[0], ghost.y + move[1])
-                        not in occupied_now
-                        and (ghost.x + move[0], ghost.y + move[1])
-                        not in reserved_next
-                    )
-                ]
-                if fallback:
-                    candidates = fallback
-                else:
-                    ghost.stuck_ticks += 1
-                    reserved_next.add(ghost_prev)
-                    occupied_now.add(ghost_prev)
-                    continue
-
-            # If a ghost stays blocked for several ticks, allow extra
-            # variability to break small loops and local deadlocks.
-            if ghost.stuck_ticks >= 3:
-                random.shuffle(candidates)
-                chosen = candidates[0]
-            else:
-                target_x = self.runtime.player_x
-                target_y = self.runtime.player_y
-                random.shuffle(candidates)
-
-                def score_move(move: tuple[int, int]) -> float:
-                    nx = ghost.x + move[0]
-                    ny = ghost.y + move[1]
-                    distance = abs(nx - target_x) + abs(ny - target_y)
-                    revisit_penalty = 0.0
-                    if (nx, ny) in ghost.recent_cells:
-                        revisit_penalty = 1.0
-                    return distance + revisit_penalty
-
-                chosen = min(candidates, key=score_move)
-
-            ghost.dir_x, ghost.dir_y = chosen
-            ghost.render_from_x = ghost.x
-            ghost.render_from_y = ghost.y
-            ghost.render_started_ms = now_ms
-            ghost.x += chosen[0]
-            ghost.y += chosen[1]
-            ghost.stuck_ticks = 0
-            ghost.recent_cells.append((ghost.x, ghost.y))
-            occupied_now.add((ghost.x, ghost.y))
-            reserved_next.add((ghost.x, ghost.y))
-
-        # Collision is evaluated from interpolated visual positions each frame.
 
     def _poll_generation_state(self) -> None:
         """Resolve stale loading state if worker ended unexpectedly."""
@@ -736,6 +430,42 @@ class Game:
     def _draw(self, screen: pygame.Surface) -> None:
         """Draw current UI state."""
         draw_game(self, screen)
+
+    def _check_ghost_collision(self, now_ms: int) -> bool:
+        """Return True if a ghost visually overlaps the player."""
+        return check_ghost_collision(self, now_ms)
+
+    def _move_ghosts(self, now_ms: int) -> None:
+        """Move ghosts with a simple chase behavior."""
+        move_ghosts(self, now_ms)
+
+    def _get_player_render_position(self, now_ms: int) -> tuple[float, float]:
+        """Return interpolated player position in tile coordinates."""
+        return self._interpolate_cell_position(
+            from_x=self.player_render_from_x,
+            from_y=self.player_render_from_y,
+            to_x=self.runtime.player_x,
+            to_y=self.runtime.player_y,
+            started_ms=self.player_render_started_ms,
+            cooldown_ms=self.move_cooldown_ms,
+            now_ms=now_ms,
+        )
+
+    def _get_ghost_render_position(
+        self,
+        ghost: GhostRuntime,
+        now_ms: int,
+    ) -> tuple[float, float]:
+        """Return interpolated ghost position in tile coordinates."""
+        return self._interpolate_cell_position(
+            from_x=ghost.render_from_x,
+            from_y=ghost.render_from_y,
+            to_x=ghost.x,
+            to_y=ghost.y,
+            started_ms=ghost.render_started_ms,
+            cooldown_ms=self.ghost_move_cooldown_ms,
+            now_ms=now_ms,
+        )
 
     def _interpolate_cell_position(
         self,
