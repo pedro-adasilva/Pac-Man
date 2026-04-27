@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import Thread
 
 import pygame
@@ -59,6 +59,10 @@ class GhostRuntime:
     dir_x: int
     dir_y: int
     color: tuple[int, int, int]
+    recent_cells: deque[tuple[int, int]] = field(
+        default_factory=lambda: deque(maxlen=6)
+    )
+    stuck_ticks: int = 0
 
 
 class Game:
@@ -86,6 +90,7 @@ class Game:
         self.spawn_x = 0
         self.spawn_y = 0
         self.ghosts: list[GhostRuntime] = []
+        self.ghost_update_index = 0
         self.game_over_reason = "win"
         self.pacgums: set[tuple[int, int]] = set()
         self.super_pacgums: set[tuple[int, int]] = set()
@@ -213,6 +218,7 @@ class Game:
         self.last_move_ms = 0
         self.last_ghost_move_ms = 0
         self.ghosts = []
+        self.ghost_update_index = 0
         self.runtime.state = "loading"
         self.generation_thread = Thread(
             target=self._generate_level_background,
@@ -304,6 +310,7 @@ class Game:
                     dir_x=0,
                     dir_y=0,
                     color=colors[idx],
+                    recent_cells=deque([chosen], maxlen=6),
                 )
             )
 
@@ -451,6 +458,9 @@ class Game:
             ghost.y = ghost.spawn_y
             ghost.dir_x = 0
             ghost.dir_y = 0
+            ghost.stuck_ticks = 0
+            ghost.recent_cells.clear()
+            ghost.recent_cells.append((ghost.spawn_x, ghost.spawn_y))
 
     def _check_ghost_collision(self) -> bool:
         """Return True if player collides with any ghost."""
@@ -481,40 +491,94 @@ class Game:
             if (
                 0 <= nx < len(self.level.grid[0])
                 and 0 <= ny < len(self.level.grid)
+                and self.level.grid[ny][nx] != BLOCKED_CELL_CODE
             ):
                 moves.append((dx, dy))
         return moves
 
-    def _move_ghosts(self) -> None:
+    def _move_ghosts(self, player_prev: tuple[int, int]) -> None:
         """Move ghosts with a simple chase behavior."""
         if not self.level or not self.ghosts:
             return
 
-        for ghost in self.ghosts:
+        player_now = (self.runtime.player_x, self.runtime.player_y)
+        update_order = list(range(len(self.ghosts)))
+        if update_order:
+            shift = self.ghost_update_index % len(update_order)
+            update_order = update_order[shift:] + update_order[:shift]
+            self.ghost_update_index += 1
+
+        occupied_now = {(ghost.x, ghost.y) for ghost in self.ghosts}
+        reserved_next: set[tuple[int, int]] = set()
+        for ghost_idx in update_order:
+            ghost = self.ghosts[ghost_idx]
+            ghost_prev = (ghost.x, ghost.y)
+            occupied_now.discard(ghost_prev)
             moves = self._ghost_available_moves(ghost)
             if not moves:
+                ghost.stuck_ticks += 1
+                reserved_next.add(ghost_prev)
+                occupied_now.add(ghost_prev)
                 continue
 
             reverse = (-ghost.dir_x, -ghost.dir_y)
             non_reverse = [move for move in moves if move != reverse]
             candidates = non_reverse if non_reverse else moves
 
-            target_x = self.runtime.player_x
-            target_y = self.runtime.player_y
-            random.shuffle(candidates)
-            chosen = min(
-                candidates,
-                key=lambda move: (
-                    abs((ghost.x + move[0]) - target_x)
-                    + abs((ghost.y + move[1]) - target_y),
-                    move[1],
-                    move[0],
-                ),
-            )
+            available = [
+                move
+                for move in candidates
+                if (
+                    (ghost.x + move[0], ghost.y + move[1])
+                    not in occupied_now
+                    and (ghost.x + move[0], ghost.y + move[1])
+                    not in reserved_next
+                )
+            ]
+            if available:
+                candidates = available
+            else:
+                ghost.stuck_ticks += 1
+                reserved_next.add(ghost_prev)
+                occupied_now.add(ghost_prev)
+                continue
+
+            # If a ghost stays blocked for several ticks, allow extra
+            # variability to break small loops and local deadlocks.
+            if ghost.stuck_ticks >= 3:
+                random.shuffle(candidates)
+                chosen = candidates[0]
+            else:
+                target_x = self.runtime.player_x
+                target_y = self.runtime.player_y
+                random.shuffle(candidates)
+
+                def score_move(move: tuple[int, int]) -> float:
+                    nx = ghost.x + move[0]
+                    ny = ghost.y + move[1]
+                    distance = abs(nx - target_x) + abs(ny - target_y)
+                    revisit_penalty = 0.0
+                    if (nx, ny) in ghost.recent_cells:
+                        revisit_penalty = 1.0
+                    return distance + revisit_penalty
+
+                chosen = min(candidates, key=score_move)
 
             ghost.dir_x, ghost.dir_y = chosen
             ghost.x += chosen[0]
             ghost.y += chosen[1]
+            ghost.stuck_ticks = 0
+            ghost.recent_cells.append((ghost.x, ghost.y))
+            occupied_now.add((ghost.x, ghost.y))
+            reserved_next.add((ghost.x, ghost.y))
+
+            # Detect both overlap and same-tick cross-over collisions.
+            if (ghost.x, ghost.y) == player_now or (
+                ghost_prev == player_now
+                and (ghost.x, ghost.y) == player_prev
+            ):
+                self._on_player_caught()
+                return
 
         self._check_ghost_collision()
 
@@ -557,6 +621,7 @@ class Game:
         if self.runtime.state != "playing" or not self.level:
             return
         now_ms = pygame.time.get_ticks()
+        player_prev = (self.runtime.player_x, self.runtime.player_y)
         if now_ms - self.last_move_ms >= self.move_cooldown_ms:
             if self._can_move(self.desired_dx, self.desired_dy):
                 self.move_dx = self.desired_dx
@@ -570,7 +635,7 @@ class Game:
                     self.move_dy = 0
 
         if now_ms - self.last_ghost_move_ms >= self.ghost_move_cooldown_ms:
-            self._move_ghosts()
+            self._move_ghosts(player_prev)
             self.last_ghost_move_ms = now_ms
 
     def _handle_playing_key(self, key: int) -> None:
