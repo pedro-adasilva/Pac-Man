@@ -12,7 +12,7 @@ from pacman.settings import load_settings
 def main() -> int:
     """Run game startup and handle fatal errors gracefully."""
     try:
-        settings = load_settings(Path("config/game_config.jsonc"))
+        settings = load_settings(Path("config.json"))
         game = Game(settings)
         game.run()
         return 0

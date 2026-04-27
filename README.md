@@ -47,7 +47,7 @@ make lint-strict
 
 El archivo `config.json` controla todos los parámetros del juego:
 
-- **window_width, window_height, fps**: Parámetros de ventana
+- **window_width, window_height, fps**: Parámetros base de ventana. El juego ajusta automáticamente el tamaño final al 90% de la pantalla disponible.
 - **lives**: Vidas iniciales (default: 3)
 - **pacgum, points_per_pacgum**: Cantidad y puntos por goma
 - **points_per_super_pacgum**: Puntos por super goma (default: 50)
