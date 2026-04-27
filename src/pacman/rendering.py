@@ -278,7 +278,14 @@ def _draw_playing(game: "Game", screen: pygame.Surface) -> None:
     pygame.draw.ellipse(screen, (255, 217, 61), player_rect)
 
     ghost_radius = max(4, min(14, (cell_size - player_padding) // 2))
+    try:
+        now_ms = pygame.time.get_ticks()
+    except Exception:
+        now_ms = 0
     for ghost in game.ghosts:
+        # Skip rendering eaten ghosts
+        if ghost.eaten_until_ms != 0:
+            continue
         ghost_x, ghost_y = game._get_ghost_render_position(
             ghost,
             now_ms,
@@ -287,7 +294,12 @@ def _draw_playing(game: "Game", screen: pygame.Surface) -> None:
             int(offset_x + ghost_x * cell_size + cell_size // 2),
             int(offset_y + ghost_y * cell_size + cell_size // 2),
         )
-        pygame.draw.circle(screen, ghost.color, center, ghost_radius)
+        # Change color if edible
+        if game.ghosts_edible_until_ms > now_ms:
+            ghost_color = (230, 230, 250)  # light blue when edible
+        else:
+            ghost_color = ghost.color
+        pygame.draw.circle(screen, ghost_color, center, ghost_radius)
 
     hud_font_size = max(14, int(20 * scale))
     hud = pygame.font.SysFont("monospace", hud_font_size).render(

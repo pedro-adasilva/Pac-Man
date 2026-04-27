@@ -114,20 +114,55 @@ def _ghost_available_moves(
     return moves
 
 
+GHOST_EDIBLE_MS = 8000
+GHOST_RESPAWN_MS = 5000
+
+
+def update_ghost_respawns(game: "Game", now_ms: int) -> None:
+    """Respawn eaten ghosts as soon as their timer expires."""
+    for ghost in game.ghosts:
+        if ghost.eaten_until_ms <= 0 or ghost.eaten_until_ms > now_ms:
+            continue
+        ghost.x = ghost.spawn_x
+        ghost.y = ghost.spawn_y
+        ghost.eaten_until_ms = 0
+        ghost.render_from_x = ghost.spawn_x
+        ghost.render_from_y = ghost.spawn_y
+        ghost.render_started_ms = now_ms
+        ghost.recent_cells.clear()
+        ghost.stuck_ticks = 0
+        ghost.dir_x = 0
+        ghost.dir_y = 0
+
+
 def check_ghost_collision(game: "Game", now_ms: int) -> bool:
-    """Return True if a ghost visually overlaps the player."""
+    """Return True if a ghost visually overlaps the player.
+
+    If ghosts are edible, eat them and respawn later.
+    Otherwise, handle normal collision.
+    """
     player_x, player_y = game._get_player_render_position(now_ms)
     for ghost in game.ghosts:
+        if ghost.eaten_until_ms != 0:
+            continue
         ghost_x, ghost_y = game._get_ghost_render_position(ghost, now_ms)
         distance = math.hypot(ghost_x - player_x, ghost_y - player_y)
         if distance <= COLLISION_DISTANCE_TILES:
+            # Check if ghost is edible
+            is_edible = game.ghosts_edible_until_ms > now_ms
+            if is_edible:
+                # Ghost is currently edible, not already eaten
+                game.runtime.score += game.settings.points_per_ghost
+                ghost.eaten_until_ms = now_ms + GHOST_RESPAWN_MS
+                return False
+            # Ghost is not edible anymore
             game._on_player_caught()
             return True
     return False
 
 
 def move_ghosts(game: "Game", now_ms: int) -> None:
-    """Move ghosts with a simple chase behavior."""
+    """Move ghosts with chase or flee behavior based on edible state."""
     if not game.level or not game.ghosts:
         return
 
@@ -141,6 +176,11 @@ def move_ghosts(game: "Game", now_ms: int) -> None:
     reserved_next: set[tuple[int, int]] = set()
     for ghost_idx in update_order:
         ghost = game.ghosts[ghost_idx]
+
+        # Skip if ghost is eaten
+        if ghost.eaten_until_ms != 0:
+            continue
+
         ghost_prev = (ghost.x, ghost.y)
         occupied_now.discard(ghost_prev)
         moves = _ghost_available_moves(game, ghost)
@@ -193,6 +233,9 @@ def move_ghosts(game: "Game", now_ms: int) -> None:
             target_y = game.runtime.player_y
             random.shuffle(candidates)
 
+            # Determine if ghost should chase or flee
+            is_edible = game.ghosts_edible_until_ms > now_ms
+
             def score_move(move: tuple[int, int]) -> float:
                 nx = ghost.x + move[0]
                 ny = ghost.y + move[1]
@@ -200,7 +243,12 @@ def move_ghosts(game: "Game", now_ms: int) -> None:
                 revisit_penalty = 0.0
                 if (nx, ny) in ghost.recent_cells:
                     revisit_penalty = 1.0
-                return distance + revisit_penalty
+
+                # If edible, flee (maximize); else chase (minimize)
+                if is_edible:
+                    return -distance + revisit_penalty
+                else:
+                    return distance + revisit_penalty
 
             chosen = min(candidates, key=score_move)
 

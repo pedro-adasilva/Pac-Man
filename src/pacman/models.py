@@ -34,3 +34,4 @@ class GhostRuntime:
     render_from_x: int = 0
     render_from_y: int = 0
     render_started_ms: int = 0
+    eaten_until_ms: int = 0

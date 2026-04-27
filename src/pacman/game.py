@@ -12,6 +12,7 @@ from pacman.ghost_logic import (
     check_ghost_collision,
     initialize_ghosts,
     move_ghosts,
+    update_ghost_respawns,
 )
 from pacman.level_flow import (
     check_level_completion,
@@ -47,7 +48,7 @@ MAX_WINDOW_WIDTH = 2560
 MAX_WINDOW_HEIGHT = 1440
 WINDOW_SCREEN_RATIO = 0.9
 PLAYER_MOVE_COOLDOWN_MS = 180
-GHOST_MOVE_COOLDOWN_MS = 300
+GHOST_MOVE_COOLDOWN_MS = 350
 COLLISION_DISTANCE_TILES = 0.42
 
 
@@ -89,6 +90,7 @@ class Game:
         self.pacgums: set[tuple[int, int]] = set()
         self.super_pacgums: set[tuple[int, int]] = set()
         self.recent_random_seeds: deque[int] = deque(maxlen=8)
+        self.ghosts_edible_until_ms = 0
         self.runtime = GameRuntime(
             state="menu",
             player_x=0,
@@ -267,6 +269,11 @@ class Game:
         if pos in self.super_pacgums:
             self.super_pacgums.remove(pos)
             self.runtime.score += self.settings.points_per_super_pacgum
+            try:
+                now_ms = pygame.time.get_ticks()
+            except Exception:
+                now_ms = 0
+            self.ghosts_edible_until_ms = now_ms + 8000
 
     def _check_level_completion(self) -> None:
         """Advance to the next level or end the game when cleared."""
@@ -352,6 +359,7 @@ class Game:
         if self.runtime.state != "playing" or not self.level:
             return
         now_ms = pygame.time.get_ticks()
+        update_ghost_respawns(self, now_ms)
         if now_ms - self.last_move_ms >= self.move_cooldown_ms:
             if self._can_move(self.desired_dx, self.desired_dy):
                 self.move_dx = self.desired_dx
