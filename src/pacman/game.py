@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+import math
 import random
 from dataclasses import dataclass, field
 from threading import Thread
@@ -36,6 +37,7 @@ MAX_WINDOW_HEIGHT = 1440
 WINDOW_SCREEN_RATIO = 0.9
 PLAYER_MOVE_COOLDOWN_MS = 180
 GHOST_MOVE_COOLDOWN_MS = 300
+COLLISION_DISTANCE_TILES = 0.42
 
 
 @dataclass
@@ -63,6 +65,9 @@ class GhostRuntime:
         default_factory=lambda: deque(maxlen=6)
     )
     stuck_ticks: int = 0
+    render_from_x: int = 0
+    render_from_y: int = 0
+    render_started_ms: int = 0
 
 
 class Game:
@@ -89,6 +94,9 @@ class Game:
         self.desired_dy = 0
         self.spawn_x = 0
         self.spawn_y = 0
+        self.player_render_from_x = 0
+        self.player_render_from_y = 0
+        self.player_render_started_ms = 0
         self.ghosts: list[GhostRuntime] = []
         self.ghost_update_index = 0
         self.game_over_reason = "win"
@@ -239,6 +247,9 @@ class Game:
             self.spawn_x, self.spawn_y = self._find_spawn_position(level)
             self.runtime.player_x = self.spawn_x
             self.runtime.player_y = self.spawn_y
+            self.player_render_from_x = self.spawn_x
+            self.player_render_from_y = self.spawn_y
+            self.player_render_started_ms = 0
             self.move_dx = 0
             self.move_dy = 0
             self.desired_dx = 0
@@ -311,6 +322,9 @@ class Game:
                     dir_y=0,
                     color=colors[idx],
                     recent_cells=deque([chosen], maxlen=6),
+                    render_from_x=chosen[0],
+                    render_from_y=chosen[1],
+                    render_started_ms=0,
                 )
             )
 
@@ -448,6 +462,9 @@ class Game:
 
         self.runtime.player_x = self.spawn_x
         self.runtime.player_y = self.spawn_y
+        self.player_render_from_x = self.spawn_x
+        self.player_render_from_y = self.spawn_y
+        self.player_render_started_ms = pygame.time.get_ticks()
         self.move_dx = 0
         self.move_dy = 0
         self.desired_dx = 0
@@ -461,14 +478,45 @@ class Game:
             ghost.stuck_ticks = 0
             ghost.recent_cells.clear()
             ghost.recent_cells.append((ghost.spawn_x, ghost.spawn_y))
+            ghost.render_from_x = ghost.spawn_x
+            ghost.render_from_y = ghost.spawn_y
+            ghost.render_started_ms = pygame.time.get_ticks()
 
-    def _check_ghost_collision(self) -> bool:
-        """Return True if player collides with any ghost."""
+    def _get_player_render_position(self, now_ms: int) -> tuple[float, float]:
+        """Return interpolated player position in tile coordinates."""
+        return self._interpolate_cell_position(
+            from_x=self.player_render_from_x,
+            from_y=self.player_render_from_y,
+            to_x=self.runtime.player_x,
+            to_y=self.runtime.player_y,
+            started_ms=self.player_render_started_ms,
+            cooldown_ms=self.move_cooldown_ms,
+            now_ms=now_ms,
+        )
+
+    def _get_ghost_render_position(
+        self,
+        ghost: GhostRuntime,
+        now_ms: int,
+    ) -> tuple[float, float]:
+        """Return interpolated ghost position in tile coordinates."""
+        return self._interpolate_cell_position(
+            from_x=ghost.render_from_x,
+            from_y=ghost.render_from_y,
+            to_x=ghost.x,
+            to_y=ghost.y,
+            started_ms=ghost.render_started_ms,
+            cooldown_ms=self.ghost_move_cooldown_ms,
+            now_ms=now_ms,
+        )
+
+    def _check_ghost_collision(self, now_ms: int) -> bool:
+        """Return True if a ghost visually overlaps the player."""
+        player_x, player_y = self._get_player_render_position(now_ms)
         for ghost in self.ghosts:
-            if (
-                ghost.x == self.runtime.player_x
-                and ghost.y == self.runtime.player_y
-            ):
+            ghost_x, ghost_y = self._get_ghost_render_position(ghost, now_ms)
+            distance = math.hypot(ghost_x - player_x, ghost_y - player_y)
+            if distance <= COLLISION_DISTANCE_TILES:
                 self._on_player_caught()
                 return True
         return False
@@ -496,12 +544,11 @@ class Game:
                 moves.append((dx, dy))
         return moves
 
-    def _move_ghosts(self, player_prev: tuple[int, int]) -> None:
+    def _move_ghosts(self, now_ms: int) -> None:
         """Move ghosts with a simple chase behavior."""
         if not self.level or not self.ghosts:
             return
 
-        player_now = (self.runtime.player_x, self.runtime.player_y)
         update_order = list(range(len(self.ghosts)))
         if update_order:
             shift = self.ghost_update_index % len(update_order)
@@ -538,10 +585,25 @@ class Game:
             if available:
                 candidates = available
             else:
-                ghost.stuck_ticks += 1
-                reserved_next.add(ghost_prev)
-                occupied_now.add(ghost_prev)
-                continue
+                # If preferred direction is blocked, allow reverse moves
+                # before declaring the ghost stuck.
+                fallback = [
+                    move
+                    for move in moves
+                    if (
+                        (ghost.x + move[0], ghost.y + move[1])
+                        not in occupied_now
+                        and (ghost.x + move[0], ghost.y + move[1])
+                        not in reserved_next
+                    )
+                ]
+                if fallback:
+                    candidates = fallback
+                else:
+                    ghost.stuck_ticks += 1
+                    reserved_next.add(ghost_prev)
+                    occupied_now.add(ghost_prev)
+                    continue
 
             # If a ghost stays blocked for several ticks, allow extra
             # variability to break small loops and local deadlocks.
@@ -565,6 +627,9 @@ class Game:
                 chosen = min(candidates, key=score_move)
 
             ghost.dir_x, ghost.dir_y = chosen
+            ghost.render_from_x = ghost.x
+            ghost.render_from_y = ghost.y
+            ghost.render_started_ms = now_ms
             ghost.x += chosen[0]
             ghost.y += chosen[1]
             ghost.stuck_ticks = 0
@@ -572,15 +637,7 @@ class Game:
             occupied_now.add((ghost.x, ghost.y))
             reserved_next.add((ghost.x, ghost.y))
 
-            # Detect both overlap and same-tick cross-over collisions.
-            if (ghost.x, ghost.y) == player_now or (
-                ghost_prev == player_now
-                and (ghost.x, ghost.y) == player_prev
-            ):
-                self._on_player_caught()
-                return
-
-        self._check_ghost_collision()
+        # Collision is evaluated from interpolated visual positions each frame.
 
     def _poll_generation_state(self) -> None:
         """Resolve stale loading state if worker ended unexpectedly."""
@@ -621,22 +678,23 @@ class Game:
         if self.runtime.state != "playing" or not self.level:
             return
         now_ms = pygame.time.get_ticks()
-        player_prev = (self.runtime.player_x, self.runtime.player_y)
         if now_ms - self.last_move_ms >= self.move_cooldown_ms:
             if self._can_move(self.desired_dx, self.desired_dy):
                 self.move_dx = self.desired_dx
                 self.move_dy = self.desired_dy
 
             if self.move_dx != 0 or self.move_dy != 0:
-                if self._try_move(self.move_dx, self.move_dy):
+                if self._try_move(self.move_dx, self.move_dy, now_ms):
                     self.last_move_ms = now_ms
                 else:
                     self.move_dx = 0
                     self.move_dy = 0
 
         if now_ms - self.last_ghost_move_ms >= self.ghost_move_cooldown_ms:
-            self._move_ghosts(player_prev)
+            self._move_ghosts(now_ms)
             self.last_ghost_move_ms = now_ms
+
+        self._check_ghost_collision(now_ms)
 
     def _handle_playing_key(self, key: int) -> None:
         """Handle in-game controls and update player position."""
@@ -669,7 +727,7 @@ class Game:
         cell_code = self.level.grid[y][x]
         return can_move(cell_code, dx, dy)
 
-    def _try_move(self, dx: int, dy: int) -> bool:
+    def _try_move(self, dx: int, dy: int, now_ms: int) -> bool:
         """Try to move player by one cell and update score/state."""
         if not self.level:
             return False
@@ -686,13 +744,15 @@ class Game:
             0 <= new_x < len(self.level.grid[0])
             and 0 <= new_y < len(self.level.grid)
         ):
+            self.player_render_from_x = self.runtime.player_x
+            self.player_render_from_y = self.runtime.player_y
+            self.player_render_started_ms = now_ms
             self.runtime.player_x = new_x
             self.runtime.player_y = new_y
         else:
             return False
 
         self._consume_collectibles_at_player()
-        self._check_ghost_collision()
         self._check_level_completion()
         return True
 
@@ -718,6 +778,27 @@ class Game:
             self._draw_error(screen)
             return
         self._draw_playing(screen)
+
+    def _interpolate_cell_position(
+        self,
+        from_x: int,
+        from_y: int,
+        to_x: int,
+        to_y: int,
+        started_ms: int,
+        cooldown_ms: int,
+        now_ms: int,
+    ) -> tuple[float, float]:
+        """Return interpolated tile coordinates for smooth rendering."""
+        if cooldown_ms <= 0:
+            return float(to_x), float(to_y)
+
+        elapsed = max(0, now_ms - started_ms)
+        progress = min(1.0, elapsed / cooldown_ms)
+        return (
+            from_x + (to_x - from_x) * progress,
+            from_y + (to_y - from_y) * progress,
+        )
 
     def _draw_menu(self, screen: pygame.Surface) -> None:
         """Draw menu view."""
@@ -921,18 +1002,26 @@ class Game:
             )
 
         player_rect = pygame.Rect(
-            offset_x + self.runtime.player_x * cell_size + player_padding,
-            offset_y + self.runtime.player_y * cell_size + player_padding,
+            0,
+            0,
             cell_size - (player_padding * 2),
             cell_size - (player_padding * 2),
         )
+        now_ms = pygame.time.get_ticks()
+        player_x, player_y = self._get_player_render_position(now_ms)
+        player_rect.x = int(offset_x + player_x * cell_size + player_padding)
+        player_rect.y = int(offset_y + player_y * cell_size + player_padding)
         pygame.draw.ellipse(screen, (255, 217, 61), player_rect)
 
         ghost_radius = max(4, min(14, (cell_size - player_padding) // 2))
         for ghost in self.ghosts:
+            ghost_x, ghost_y = self._get_ghost_render_position(
+                ghost,
+                now_ms,
+            )
             center = (
-                offset_x + ghost.x * cell_size + cell_size // 2,
-                offset_y + ghost.y * cell_size + cell_size // 2,
+                int(offset_x + ghost_x * cell_size + cell_size // 2),
+                int(offset_y + ghost_y * cell_size + cell_size // 2),
             )
             pygame.draw.circle(screen, ghost.color, center, ghost_radius)
 
